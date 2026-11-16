@@ -37,13 +37,23 @@
             <scope>compile</scope>
 <!--            <scope>provided</scope>-->
         </dependency>
+        <dependency>
+            <groupId>sc.fiji</groupId>
+            <artifactId>Trainable_Segmentation</artifactId>
+            <version>4.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>fr.inra.ijpb</groupId>
+            <artifactId>MorphoLibJ_</artifactId>
+            <version>1.6.5</version>
+        </dependency>
 
     </dependencies>
 
     <repositories>
         <repository>
             <id>scijava.public</id>
-            <url>https://maven.scijava.org/content/groups/public</url>
+            <url>https://maven.scijava.org/repository/public</url>
         </repository>
     </repositories>
 </project>

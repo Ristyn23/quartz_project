@@ -5,7 +5,7 @@ import org.scijava.plugin.Parameter;
 import org.scijava.plugin.Plugin;
 import org.scijava.log.LogService;
 
-@Plugin(type = Command.class, name = "Hello Quartz")
+@Plugin(type = Command.class, name = "Hello Quartz", menuPath = "Plugins>Quartz>Hello Quartz")
 public class HelloQuartzCommand implements Command {
 
     @Parameter
