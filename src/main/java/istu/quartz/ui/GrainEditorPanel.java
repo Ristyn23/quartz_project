@@ -44,6 +44,7 @@ final class GrainEditorPanel extends JPanel {
     private final JButton merge = new JButton("Объединить");
     private final JToggleButton split = new JToggleButton("Разделить линией");
     private final JButton save = new JButton("Сохранить CSV…");
+    private final JButton saveAnnotations = new JButton("Сохранить разметку…");
     private final JLabel instruction = new JLabel();
     private final JLabel firstMeasurement = new JLabel(" ");
     private final JLabel secondMeasurement = new JLabel(" ");
@@ -57,6 +58,8 @@ final class GrainEditorPanel extends JPanel {
     private int firstLabel;
     private int secondLabel;
     private boolean exporting;
+    private boolean dirty;
+    private boolean busy;
 
     GrainEditorPanel() {
         super(new BorderLayout());
@@ -64,6 +67,7 @@ final class GrainEditorPanel extends JPanel {
         tools.add(merge);
         tools.add(split);
         tools.add(save);
+        tools.add(saveAnnotations);
         JPanel measurements = new JPanel(new GridLayout(0, 1, 0, 2));
         measurements.setBorder(BorderFactory.createEmptyBorder(0, 5, 4, 5));
         measurements.add(instruction);
@@ -78,6 +82,7 @@ final class GrainEditorPanel extends JPanel {
 
         merge.addActionListener(event -> mergeSelected());
         save.addActionListener(event -> saveCsv());
+        saveAnnotations.addActionListener(event -> saveAnnotations());
         split.addActionListener(event -> {
             if (secondLabel != 0) {
                 firstLabel = 0;
@@ -89,7 +94,7 @@ final class GrainEditorPanel extends JPanel {
         MouseAdapter mouse = new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent event) {
-                if (labels == null || !SwingUtilities.isLeftMouseButton(event)) {
+                if (busy || labels == null || !SwingUtilities.isLeftMouseButton(event)) {
                     return;
                 }
                 Point point = preview.imagePoint(event.getPoint(), false);
@@ -125,6 +130,7 @@ final class GrainEditorPanel extends JPanel {
                 int newLabel = labels.split(firstLabel, stroke);
                 stroke.clear();
                 if (newLabel > 0) {
+                    dirty = true;
                     secondLabel = newLabel;
                     split.setSelected(false);
                     updateSelection();
@@ -142,6 +148,7 @@ final class GrainEditorPanel extends JPanel {
 
     void setGrains(BufferedImage source, GrainLabelMap map) {
         labels = map;
+        dirty = false;
         firstLabel = 0;
         secondLabel = 0;
         stroke.clear();
@@ -184,15 +191,14 @@ final class GrainEditorPanel extends JPanel {
             instruction.setText("Выбранные зёрна не соседствуют. Выберите другую пару.");
             return;
         }
+        dirty = true;
         secondLabel = 0;
         updateSelection();
         instruction.setText("Зёрна объединены.");
     }
 
     private void updateSelection() {
-        split.setEnabled(labels != null);
-        merge.setEnabled(labels != null && !split.isSelected() && secondLabel != 0);
-        save.setEnabled(labels != null && !exporting);
+        setBusy(busy);
         if (labels == null) {
             instruction.setText("");
             firstMeasurement.setText(" ");
@@ -213,6 +219,18 @@ final class GrainEditorPanel extends JPanel {
         drawOverlay();
     }
 
+    void setBusy(boolean busy) {
+        this.busy = busy;
+        split.setEnabled(!busy && labels != null);
+        merge.setEnabled(!busy && labels != null && !split.isSelected() && secondLabel != 0);
+        save.setEnabled(!busy && labels != null && !exporting);
+        saveAnnotations.setEnabled(!busy && labels != null);
+        if (busy) {
+            stroke.clear();
+            preview.repaint();
+        }
+    }
+
     private String formatMeasurement(int label) {
         if (label == 0) {
             return " ";
@@ -225,6 +243,27 @@ final class GrainEditorPanel extends JPanel {
 
     private String formatShape(double value) {
         return Double.isFinite(value) ? shapeFormat.format(value) : "н/д";
+    }
+
+    boolean confirmDiscard() {
+        if (!dirty) {
+            return true;
+        }
+        int answer = JOptionPane.showConfirmDialog(this, "Сохранить изменения разметки?",
+                "Quartz", JOptionPane.YES_NO_CANCEL_OPTION);
+        if (answer == JOptionPane.YES_OPTION) {
+            return saveAnnotations();
+        }
+        return answer == JOptionPane.NO_OPTION;
+    }
+
+    private boolean saveAnnotations() {
+        if (labels != null && AnnotationFileDialog.save(this, labels.snapshot())) {
+            dirty = false;
+            instruction.setText("Разметка сохранена.");
+            return true;
+        }
+        return false;
     }
 
     private void saveCsv() {
@@ -263,7 +302,7 @@ final class GrainEditorPanel extends JPanel {
             @Override
             protected void done() {
                 exporting = false;
-                save.setEnabled(labels != null);
+                save.setEnabled(!busy && labels != null);
                 if (!isDisplayable()) {
                     return;
                 }

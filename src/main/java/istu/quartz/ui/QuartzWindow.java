@@ -4,6 +4,7 @@ import ij.ImagePlus;
 import ij.io.Opener;
 import ij.process.ImageProcessor;
 import istu.quartz.model.GrainBoundarySegmenter;
+import istu.quartz.model.GrainAnnotationIO;
 import istu.quartz.model.GrainLabelMap;
 import istu.quartz.model.GrainWatershed;
 import org.scijava.log.LogService;
@@ -22,6 +23,8 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.image.BufferedImage;
@@ -44,6 +47,7 @@ public class QuartzWindow extends JFrame {
     private final JButton openImage = new JButton("Открыть изображение");
     private final JButton chooseModel = new JButton("Выбрать модель");
     private final JButton analyze = new JButton("Обработать");
+    private final JButton openAnnotations = new JButton("Открыть разметку…");
     private final JLabel modelName = new JLabel("Модель не выбрана");
     private final JLabel status = new JLabel("Перетащите снимок и модель в окно или выберите их кнопками.");
     private final JTabbedPane tabs = new JTabbedPane();
@@ -67,6 +71,10 @@ public class QuartzWindow extends JFrame {
         JPanel toolbar = new JPanel(new BorderLayout(8, 0));
         toolbar.add(selection, BorderLayout.CENTER);
         toolbar.add(analyze, BorderLayout.LINE_END);
+        JPanel annotationTools = new JPanel(new FlowLayout(FlowLayout.LEADING));
+        annotationTools.add(openAnnotations);
+        toolbar.add(annotationTools, BorderLayout.PAGE_END);
+        openAnnotations.setEnabled(false);
 
         tabs.addTab("Снимок", originalPreview);
         tabs.addTab("Карта границ", boundaryPreview);
@@ -85,9 +93,18 @@ public class QuartzWindow extends JFrame {
         openImage.addActionListener(event -> chooseInput("Открыть изображение", IMAGE_FILES));
         chooseModel.addActionListener(event -> chooseInput("Выбрать модель Weka", MODEL_FILES));
         analyze.addActionListener(event -> analyze());
+        openAnnotations.addActionListener(event -> openAnnotations());
         analyze.setEnabled(false);
 
-        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+        setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent event) {
+                if (grainEditor.confirmDiscard()) {
+                    dispose();
+                }
+            }
+        });
         setMinimumSize(new Dimension(680, 420));
         setSize(960, 680);
         setLocationByPlatform(true);
@@ -140,15 +157,22 @@ public class QuartzWindow extends JFrame {
             }
         }
 
-        // Open the image before replacing either input in a combined transfer.
+        ImagePlus openedImage = null;
+        BufferedImage openedPreview = null;
         if (selectedImage != null) {
             Opener opener = new Opener();
             opener.setSilentMode(true);
-            ImagePlus openedImage = opener.openImage(selectedImage.getAbsolutePath());
+            openedImage = opener.openImage(selectedImage.getAbsolutePath());
             if (openedImage == null || openedImage.getStackSize() != 1) {
                 throw new IllegalArgumentException("Не удалось открыть одиночное изображение: " + selectedImage.getName());
             }
-            originalPreview.setImage(openedImage.getBufferedImage());
+            openedPreview = openedImage.getBufferedImage();
+        }
+        if (!grainEditor.confirmDiscard()) {
+            return;
+        }
+        if (openedImage != null) {
+            originalPreview.setImage(openedPreview);
             image = openedImage;
         }
         if (selectedModel != null) {
@@ -196,6 +220,9 @@ public class QuartzWindow extends JFrame {
     }
 
     private void analyze() {
+        if (!grainEditor.confirmDiscard()) {
+            return;
+        }
         ImagePlus input = image;
         File selectedModel = modelFile;
         clearResult();
@@ -253,9 +280,48 @@ public class QuartzWindow extends JFrame {
 
     private void setProcessing(boolean processing) {
         this.processing = processing;
+        grainEditor.setBusy(processing);
         openImage.setEnabled(!processing);
         chooseModel.setEnabled(!processing);
+        openAnnotations.setEnabled(!processing && image != null);
         analyze.setEnabled(!processing && image != null && modelFile != null);
+    }
+
+    private void openAnnotations() {
+        AnnotationFileDialog source = AnnotationFileDialog.choose(this, false);
+        if (source == null || !grainEditor.confirmDiscard()) {
+            return;
+        }
+        ImagePlus input = image;
+        setProcessing(true);
+        status.setText("Открытие разметки…");
+        new SwingWorker<GrainLabelMap, Void>() {
+            @Override
+            protected GrainLabelMap doInBackground() throws Exception {
+                return GrainAnnotationIO.read(source.file.toPath(), source.format, input.getWidth(), input.getHeight());
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    GrainLabelMap imported = get();
+                    if (isDisplayable()) {
+                        clearResult();
+                        grainEditor.setGrains(originalPreview.getImage(), imported);
+                        tabs.setEnabledAt(2, true);
+                        tabs.setSelectedIndex(2);
+                        status.setText("Разметка загружена: " + source.file.getName());
+                    }
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    showError(error);
+                } catch (ExecutionException error) {
+                    showError(error.getCause());
+                } finally {
+                    setProcessing(false);
+                }
+            }
+        }.execute();
     }
 
     private void showError(Throwable error) {
