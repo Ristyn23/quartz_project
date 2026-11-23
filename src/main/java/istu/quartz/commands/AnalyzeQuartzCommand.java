@@ -8,7 +8,7 @@ import org.scijava.plugin.Plugin;
 
 import javax.swing.SwingUtilities;
 
-@Plugin(type = Command.class, menuPath = "Plugins>Quartz>Analyze Quartz")
+@Plugin(type = Command.class, menuPath = "Plugins>Quartz Segmentation>Analyze Quartz")
 public class AnalyzeQuartzCommand implements Command {
 
     @Parameter

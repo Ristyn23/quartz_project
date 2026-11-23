@@ -66,8 +66,12 @@ final class GrainEditorPanel extends JPanel {
         JPanel tools = new JPanel(new FlowLayout(FlowLayout.LEADING));
         tools.add(merge);
         tools.add(split);
-        tools.add(save);
-        tools.add(saveAnnotations);
+        JPanel exportTools = new JPanel(new FlowLayout(FlowLayout.TRAILING));
+        exportTools.add(save);
+        exportTools.add(saveAnnotations);
+        JPanel actions = new JPanel(new BorderLayout());
+        actions.add(tools, BorderLayout.CENTER);
+        actions.add(exportTools, BorderLayout.LINE_END);
         JPanel measurements = new JPanel(new GridLayout(0, 1, 0, 2));
         measurements.setBorder(BorderFactory.createEmptyBorder(0, 5, 4, 5));
         measurements.add(instruction);
@@ -75,7 +79,7 @@ final class GrainEditorPanel extends JPanel {
         measurements.add(secondMeasurement);
 
         JPanel toolbar = new JPanel(new BorderLayout());
-        toolbar.add(tools, BorderLayout.PAGE_START);
+        toolbar.add(actions, BorderLayout.PAGE_START);
         toolbar.add(measurements, BorderLayout.PAGE_END);
         add(toolbar, BorderLayout.PAGE_START);
         add(preview, BorderLayout.CENTER);

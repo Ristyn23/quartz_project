@@ -27,6 +27,10 @@
 
     <dependencies>
         <dependency>
+            <groupId>mpicbg</groupId>
+            <artifactId>mpicbg</artifactId>
+        </dependency>
+        <dependency>
             <groupId>net.imagej</groupId>
             <artifactId>imagej</artifactId>
 <!--            <scope>provided</scope>-->

@@ -18,6 +18,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
 import javax.swing.SwingWorker;
+import javax.swing.SwingUtilities;
 import javax.swing.TransferHandler;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
@@ -108,6 +109,14 @@ public class QuartzWindow extends JFrame {
         setMinimumSize(new Dimension(680, 420));
         setSize(960, 680);
         setLocationByPlatform(true);
+    }
+
+    public QuartzWindow(LogService log, ImagePlus initialImage) {
+        this(log);
+        image = initialImage;
+        originalPreview.setImage(image.getBufferedImage());
+        status.setText(image.getTitle() + "  ·  " + image.getWidth() + " × " + image.getHeight());
+        setProcessing(false);
     }
 
     private void chooseInput(String title, FileNameExtensionFilter filter) {
@@ -232,7 +241,10 @@ public class QuartzWindow extends JFrame {
         new SwingWorker<GrainLabelMap, BufferedImage>() {
             @Override
             protected GrainLabelMap doInBackground() throws Exception {
-                ImageProcessor boundary = segmenter.segment(input, selectedModel);
+                ImageProcessor boundary = segmenter.segment(input, selectedModel,
+                        message -> SwingUtilities.invokeLater(() -> {
+                            if (isDisplayable()) status.setText(message);
+                        }));
                 boundary.setMinAndMax(0, 1);
                 publish(boundary.getBufferedImage());
                 return watershed.label(boundary);
