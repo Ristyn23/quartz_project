@@ -26,6 +26,16 @@ class ImagePreview extends JPanel {
     static final double MIN_SCALE = 0.01;
     static final double MAX_SCALE = 16;
 
+    private BufferedImage regionOverlay;
+    void setAnalysisMask(ij.process.ByteProcessor mask) {
+        regionOverlay = null;
+        if (mask != null) {
+            regionOverlay = new BufferedImage(mask.getWidth(), mask.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            for (int y = 0; y < mask.getHeight(); y++) for (int x = 0; x < mask.getWidth(); x++)
+                if (mask.get(x, y) == 0) regionOverlay.setRGB(x, y, ((x / 8 + y / 8) % 2 == 0) ? 0xff444444 : 0xff333333);
+        }
+        repaint();
+    }
     private SpatialScale spatialScale;
     private Point measureFirst, measureSecond;
     void setSpatialScale(SpatialScale scale) { spatialScale = scale; repaint(); }
@@ -232,6 +242,7 @@ class ImagePreview extends JPanel {
                 canvas.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
                 canvas.drawImage(overlay, bounds.x, bounds.y, bounds.width, bounds.height, null);
             }
+            if (regionOverlay != null) canvas.drawImage(regionOverlay, bounds.x, bounds.y, bounds.width, bounds.height, null);
             if (measureFirst != null) {
                 canvas.setColor(Color.YELLOW);
                 int x = bounds.x + (int) ((measureFirst.x + 0.5) * bounds.width / image.getWidth());

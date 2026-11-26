@@ -11,16 +11,27 @@ public final class GrainWatershed {
     private static final int CONNECTIVITY = 4;
 
     public GrainLabelMap label(ImageProcessor probability) {
+        return label(probability, null);
+    }
+
+    public GrainLabelMap label(ImageProcessor probability, ByteProcessor region) {
         int width = probability.getWidth();
         int height = probability.getHeight();
         float[] values = (float[]) probability.convertToFloatProcessor().getPixels();
+        if (region != null) {
+            if (region.getWidth() != width || region.getHeight() != height) throw new IllegalArgumentException("Размер маски области.");
+            values = values.clone();
+            for (int i = 0; i < values.length; i++) if (region.get(i) == 0) values[i] = 1;
+        }
         byte[] relief = smoothAndQuantize(values, width, height);
         ImageProcessor labels = ExtendedMinimaWatershed.extendedMinimaWatershed(
-                new ByteProcessor(width, height, relief), null, TOLERANCE, CONNECTIVITY, true);
+                new ByteProcessor(width, height, relief), region, TOLERANCE, CONNECTIVITY, true);
         if (labels == null) {
             throw new IllegalStateException("Watershed не вернул карту зёрен.");
         }
-        return new GrainLabelMap(labels);
+        GrainLabelMap result = new GrainLabelMap(labels);
+        result.restrictTo(region);
+        return result;
     }
 
     private byte[] smoothAndQuantize(float[] values, int width, int height) {

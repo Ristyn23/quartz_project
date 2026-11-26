@@ -2,6 +2,7 @@ package istu.quartz.ui;
 
 import ij.ImagePlus;
 import istu.quartz.model.SpatialScale;
+import istu.quartz.model.SelectionImages;
 import ij.io.FileSaver;
 import ij.io.Opener;
 import istu.quartz.model.StackMerger;
@@ -42,6 +43,9 @@ public final class StackMergeWindow extends JFrame {
     private final JButton use = new JButton("Использовать в Quartz");
     private final JButton save = new JButton("Сохранить TIFF…");
     private final JToggleButton selectArea = new JToggleButton("Выделить область");
+    private final JComboBox<String> selectionType = new JComboBox<>(new String[]{"Прямоугольник", "Многоугольник"});
+    private final JSpinner selectionAngle = new JSpinner(new SpinnerNumberModel(0.0, -180.0, 180.0, 1.0));
+    private boolean updatingAngle;
     private final JButton clearArea = new JButton("Сбросить выделение");
     private final JLabel selectionSize = new JLabel("Весь снимок");
     private final JSlider blend = new JSlider(0, 100, 50);
@@ -101,13 +105,24 @@ public final class StackMergeWindow extends JFrame {
         tabs.addTab("Проверка совмещения", aligned);
         JPanel resultPanel = new JPanel(new BorderLayout());
         JPanel cropTools = new JPanel(new FlowLayout(FlowLayout.LEADING));
+        cropTools.add(selectionType);
         cropTools.add(selectArea);
         cropTools.add(clearArea);
-        cropTools.add(selectionSize);
-        resultPanel.add(cropTools, BorderLayout.PAGE_START);
+        cropTools.add(new JLabel("Угол, °")); cropTools.add(selectionAngle);
+        JPanel cropInfo = new JPanel(new BorderLayout());
+        cropInfo.add(cropTools, BorderLayout.PAGE_START); cropInfo.add(selectionSize, BorderLayout.PAGE_END);
+        selectionType.addActionListener(e -> {
+            resultPreview.setPolygonMode(selectionType.getSelectedIndex() == 1);
+            selectArea.setSelected(true); resultPreview.setSelecting(true); resultPreview.requestFocusInWindow();
+            updateSelectionControls();
+        });
+        selectionAngle.addChangeListener(e -> {
+            if (!updatingAngle) resultPreview.setAngle(((Number) selectionAngle.getValue()).doubleValue());
+        });
+        resultPanel.add(cropInfo, BorderLayout.PAGE_START);
         resultPanel.add(resultPreview, BorderLayout.CENTER);
         tabs.addTab("Объединённый снимок", resultPanel);
-        selectArea.setToolTipText("Левой кнопкой нарисуйте рамку, перемещайте её или тяните за маркеры.");
+        selectArea.setToolTipText("Прямоугольник: тяните маркеры и ручку вращения. Многоугольник: точки, Enter — замкнуть; двойной щелчок по стороне — добавить вершину; Delete — удалить; Esc — сбросить.");
         selectArea.addActionListener(e -> resultPreview.setSelecting(selectArea.isSelected()));
         clearArea.addActionListener(e -> clearCrop());
         tabs.setEnabledAt(1, false);
@@ -467,8 +482,8 @@ public final class StackMergeWindow extends JFrame {
         down.setEnabled(!busy && selected >= 0 && selected < files.size() - 1);
         align.setEnabled(!busy && inputs.size() >= 2);
         merge.setEnabled(!busy && alignment != null);
-        use.setEnabled(!busy && result != null);
-        save.setEnabled(!busy && result != null);
+        use.setEnabled(!busy && result != null && !resultPreview.hasDraft());
+        save.setEnabled(!busy && result != null && !resultPreview.hasDraft());
         blend.setEnabled(!busy && alignment != null);
         resultPreview.setEditable(!busy);
         updateSelectionControls();
@@ -483,25 +498,25 @@ public final class StackMergeWindow extends JFrame {
     private void updateSelectionControls() {
         Rectangle selected = resultPreview.getSelection();
         selectArea.setEnabled(!busy && result != null);
-        clearArea.setEnabled(!busy && selected != null);
-        selectionSize.setText(selected == null ? "Весь снимок" :
-                "Выделено: " + selected.width + " × " + selected.height + " px");
+        clearArea.setEnabled(!busy && (selected != null || resultPreview.hasDraft()));
+        selectionType.setEnabled(!busy && result != null);
+        selectionAngle.setEnabled(!busy && selected != null && !resultPreview.isPolygonMode());
+        updatingAngle = true;
+        try { selectionAngle.setValue(Math.IEEEremainder(resultPreview.getAngle(), 360)); }
+        finally { updatingAngle = false; }
+        use.setEnabled(!busy && result != null && !resultPreview.hasDraft());
+        save.setEnabled(!busy && result != null && !resultPreview.hasDraft());
+        if (resultPreview.hasDraft()) selectionSize.setText("Отметьте вершины. Enter или двойной щелчок — замкнуть простой контур; Esc — сбросить.");
+        else if (selected == null) selectionSize.setText("Весь снимок");
+        else selectionSize.setText(resultPreview.isPolygonMode()
+                ? String.format(java.util.Locale.ROOT, "Площадь: %.0f px² · вершины можно двигать; Delete — удалить", resultPreview.selectedArea())
+                : String.format(java.util.Locale.ROOT, "Выделено: %d × %d px · угол %.1f°", selected.width, selected.height, resultPreview.getAngle()));
     }
 
     private ImagePlus outputSnapshot() throws IOException {
-        Rectangle selected = resultPreview.getSelection();
-        if (selected == null) return result.duplicate();
-        ij.process.ImageProcessor pixels = result.getProcessor().duplicate();
-        pixels.setRoi(selected);
-        ImagePlus output = new ImagePlus(result.getTitle() + " — фрагмент", pixels.crop());
-        ij.measure.Calibration calibration = result.getCalibration().copy();
-        calibration.xOrigin -= selected.x;
-        calibration.yOrigin -= selected.y;
-        output.setCalibration(calibration);
-        String info = result.getInfoProperty();
-        output.setProperty("Info", "Selected rectangle in merged pixels: " + selected + "\n" + (info == null ? "" : info));
-        SpatialScale.apply(output, SpatialScale.fromImage(result));
-        return output;
+        if (resultPreview.hasDraft()) throw new IOException("Сначала замкните контур клавишей Enter.");
+        return SelectionImages.extract(result, resultPreview.getShape(), resultPreview.getRectangle(),
+                Math.toRadians(resultPreview.getAngle()));
     }
 
     private void showError(Throwable error) {

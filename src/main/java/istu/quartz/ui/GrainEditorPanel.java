@@ -271,6 +271,8 @@ final class GrainEditorPanel extends JPanel {
         }
     }
 
+    void setAnalysisMask(ij.process.ByteProcessor mask) { preview.setAnalysisMask(mask); }
+
     JComponent toolsPanel() { return sidebarScroll; }
 
     void setEditingEnabled(boolean enabled) {

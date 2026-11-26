@@ -1,6 +1,7 @@
 package istu.quartz.ui;
 
 import ij.ImagePlus;
+import istu.quartz.model.AnalysisRegion;
 import istu.quartz.model.SpatialScale;
 import ij.io.Opener;
 import ij.process.ImageProcessor;
@@ -195,6 +196,8 @@ public class QuartzWindow extends JFrame {
             if (openedImage == null || openedImage.getStackSize() != 1) {
                 throw new IllegalArgumentException("Не удалось открыть одиночное изображение: " + selectedImage.getName());
             }
+            try { AnalysisRegion.read(openedImage); }
+            catch (IOException error) { throw new IllegalArgumentException(error.getMessage(), error); }
             openedPreview = openedImage.getBufferedImage();
         }
         if (!grainEditor.confirmDiscard()) {
@@ -271,7 +274,7 @@ public class QuartzWindow extends JFrame {
                         }));
                 boundary.setMinAndMax(0, 1);
                 publish(boundary.getBufferedImage());
-                return watershed.label(boundary);
+                return watershed.label(boundary, AnalysisRegion.read(input));
             }
 
             @Override
@@ -338,7 +341,9 @@ public class QuartzWindow extends JFrame {
         new SwingWorker<GrainAnnotationIO.Document, Void>() {
             @Override
             protected GrainAnnotationIO.Document doInBackground() throws Exception {
-                return GrainAnnotationIO.readDocument(source.file.toPath(), source.format, input.getWidth(), input.getHeight());
+                GrainAnnotationIO.Document document = GrainAnnotationIO.readDocument(source.file.toPath(), source.format, input.getWidth(), input.getHeight());
+                document.labels.restrictTo(AnalysisRegion.read(input));
+                return document;
             }
 
             @Override
@@ -372,7 +377,11 @@ public class QuartzWindow extends JFrame {
     }
 
     private void loadScale(ImagePlus input) {
-        try { scalePanel.setImage(input); }
+        try {
+            ij.process.ByteProcessor mask = AnalysisRegion.read(input);
+            originalPreview.setAnalysisMask(mask); boundaryPreview.setAnalysisMask(mask); grainEditor.setAnalysisMask(mask);
+            scalePanel.setImage(input);
+        }
         catch (IOException error) { scalePanel.setScale(null); showError(error); }
     }
 

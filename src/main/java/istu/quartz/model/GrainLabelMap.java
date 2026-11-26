@@ -17,6 +17,15 @@ public final class GrainLabelMap {
     private final ImagePlus image;
     private final float[] labels;
     private int lastLabel;
+    private BitSet allowed;
+    public void restrictTo(ByteProcessor mask) {
+        if (mask == null) return;
+        if (mask.getWidth() != getWidth() || mask.getHeight() != getHeight()) throw new IllegalArgumentException("Размер маски области.");
+        allowed = new BitSet(labels.length);
+        for (int i = 0; i < labels.length; i++) {
+            if (mask.get(i) != 0) allowed.set(i); else labels[i] = 0;
+        }
+    }
 
     public GrainLabelMap(ImageProcessor processor) {
         image = new ImagePlus("Quartz — карта зёрен", processor.convertToFloatProcessor());
@@ -74,7 +83,7 @@ public final class GrainLabelMap {
             if (labels[i] == first && hasNeighbor(i, second)) {
                 touching = true;
             }
-            if (labels[i] == 0 && hasNeighbor(i, first) && hasNeighbor(i, second)) {
+            if ((allowed == null || allowed.get(i)) && labels[i] == 0 && hasNeighbor(i, first) && hasNeighbor(i, second)) {
                 sharedBoundary.set(i);
             }
         }
