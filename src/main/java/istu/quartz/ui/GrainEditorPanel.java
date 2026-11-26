@@ -12,13 +12,17 @@ import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JToggleButton;
+import javax.swing.JComponent;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.Scrollable;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.FlowLayout;
+import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
@@ -45,13 +49,15 @@ final class GrainEditorPanel extends JPanel {
     private final JToggleButton split = new JToggleButton("Разделить линией");
     private final JButton save = new JButton("Сохранить CSV…");
     private final JButton saveAnnotations = new JButton("Сохранить разметку…");
-    private final JLabel instruction = new JLabel();
+    private final JTextArea instruction = new JTextArea(3, 20);
     private final JLabel firstMeasurement = new JLabel(" ");
     private final JLabel secondMeasurement = new JLabel(" ");
     private final NumberFormat areaFormat = NumberFormat.getIntegerInstance(Locale.forLanguageTag("ru-RU"));
     private final NumberFormat shapeFormat = NumberFormat.getNumberInstance(Locale.forLanguageTag("ru-RU"));
     private final List<Point> stroke = new ArrayList<>();
-    private final EditorPreview preview = new EditorPreview();
+    private final EditorPreview preview;
+    private final JPanel sidebar = new SidebarPanel();
+    private final JScrollPane sidebarScroll = new JScrollPane(sidebar);
 
     private GrainLabelMap labels;
     private BufferedImage overlay;
@@ -60,28 +66,45 @@ final class GrainEditorPanel extends JPanel {
     private boolean exporting;
     private boolean dirty;
     private boolean busy;
+    private boolean editingEnabled = true;
 
     GrainEditorPanel() {
+        this(new ImagePreview.ViewState());
+    }
+
+    GrainEditorPanel(ImagePreview.ViewState view) {
         super(new BorderLayout());
-        JPanel tools = new JPanel(new FlowLayout(FlowLayout.LEADING));
+        preview = new EditorPreview(view);
+        JPanel tools = new JPanel(new GridLayout(0, 1, 0, 6));
+        tools.setBorder(BorderFactory.createTitledBorder("Редактирование"));
         tools.add(merge);
         tools.add(split);
-        JPanel exportTools = new JPanel(new FlowLayout(FlowLayout.TRAILING));
+        JPanel exportTools = new JPanel(new GridLayout(0, 1, 0, 6));
+        exportTools.setBorder(BorderFactory.createTitledBorder("Сохранение"));
         exportTools.add(save);
         exportTools.add(saveAnnotations);
-        JPanel actions = new JPanel(new BorderLayout());
-        actions.add(tools, BorderLayout.CENTER);
-        actions.add(exportTools, BorderLayout.LINE_END);
-        JPanel measurements = new JPanel(new GridLayout(0, 1, 0, 2));
-        measurements.setBorder(BorderFactory.createEmptyBorder(0, 5, 4, 5));
-        measurements.add(instruction);
-        measurements.add(firstMeasurement);
-        measurements.add(secondMeasurement);
-
-        JPanel toolbar = new JPanel(new BorderLayout());
-        toolbar.add(actions, BorderLayout.PAGE_START);
-        toolbar.add(measurements, BorderLayout.PAGE_END);
-        add(toolbar, BorderLayout.PAGE_START);
+        instruction.setEditable(false);
+        instruction.setFocusable(false);
+        instruction.setLineWrap(true);
+        instruction.setWrapStyleWord(true);
+        instruction.setOpaque(false);
+        instruction.setFont(firstMeasurement.getFont());
+        firstMeasurement.setVerticalAlignment(JLabel.TOP);
+        secondMeasurement.setVerticalAlignment(JLabel.TOP);
+        JPanel measurements = new JPanel(new BorderLayout(0, 8));
+        measurements.setBorder(BorderFactory.createTitledBorder("Выбранные зёрна"));
+        measurements.add(instruction, BorderLayout.PAGE_START);
+        JPanel values = new JPanel(new BorderLayout(0, 12));
+        values.add(firstMeasurement, BorderLayout.PAGE_START);
+        values.add(secondMeasurement, BorderLayout.CENTER);
+        measurements.add(values, BorderLayout.CENTER);
+        sidebar.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        sidebar.add(tools, BorderLayout.PAGE_START);
+        sidebar.add(measurements, BorderLayout.CENTER);
+        sidebar.add(exportTools, BorderLayout.PAGE_END);
+        sidebarScroll.setPreferredSize(new Dimension(290, 400));
+        sidebarScroll.setMinimumSize(new Dimension(230, 100));
+        sidebarScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         add(preview, BorderLayout.CENTER);
 
         merge.addActionListener(event -> mergeSelected());
@@ -98,7 +121,7 @@ final class GrainEditorPanel extends JPanel {
         MouseAdapter mouse = new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent event) {
-                if (busy || labels == null || !SwingUtilities.isLeftMouseButton(event)) {
+                if (busy || !editingEnabled || labels == null || !SwingUtilities.isLeftMouseButton(event)) {
                     return;
                 }
                 Point point = preview.imagePoint(event.getPoint(), false);
@@ -115,12 +138,12 @@ final class GrainEditorPanel extends JPanel {
 
             @Override
             public void mouseDragged(MouseEvent event) {
-                extendStroke(event);
+                if ((event.getModifiersEx() & MouseEvent.BUTTON1_DOWN_MASK) != 0) extendStroke(event);
             }
 
             @Override
             public void mouseReleased(MouseEvent event) {
-                if (stroke.isEmpty()) {
+                if (!SwingUtilities.isLeftMouseButton(event) || stroke.isEmpty()) {
                     return;
                 }
                 extendStroke(event);
@@ -225,8 +248,8 @@ final class GrainEditorPanel extends JPanel {
 
     void setBusy(boolean busy) {
         this.busy = busy;
-        split.setEnabled(!busy && labels != null);
-        merge.setEnabled(!busy && labels != null && !split.isSelected() && secondLabel != 0);
+        split.setEnabled(!busy && editingEnabled && labels != null);
+        merge.setEnabled(!busy && editingEnabled && labels != null && !split.isSelected() && secondLabel != 0);
         save.setEnabled(!busy && labels != null && !exporting);
         saveAnnotations.setEnabled(!busy && labels != null);
         if (busy) {
@@ -235,14 +258,23 @@ final class GrainEditorPanel extends JPanel {
         }
     }
 
+    JComponent toolsPanel() { return sidebarScroll; }
+
+    void setEditingEnabled(boolean enabled) {
+        editingEnabled = enabled;
+        stroke.clear();
+        preview.repaint();
+        setBusy(busy);
+    }
+
     private String formatMeasurement(int label) {
         if (label == 0) {
             return " ";
         }
         GrainMeasurement grain = labels.measure(label);
-        return "Зерно №" + label + "   ·   Площадь " + areaFormat.format(grain.areaPx2) + " px²"
-                + "   ·   Вытянутость " + formatShape(grain.aspectRatio)
-                + "   ·   Круглость " + formatShape(grain.circularity);
+        return "<html><b>Зерно №" + label + "</b><br>Площадь: " + areaFormat.format(grain.areaPx2) + " px²"
+                + "<br>Вытянутость: " + formatShape(grain.aspectRatio)
+                + "<br>Круглость: " + formatShape(grain.circularity) + "</html>";
     }
 
     private String formatShape(double value) {
@@ -354,6 +386,10 @@ final class GrainEditorPanel extends JPanel {
     }
 
     private final class EditorPreview extends ImagePreview {
+        private EditorPreview(ViewState view) {
+            super(view);
+        }
+
         @Override
         protected void paintComponent(Graphics graphics) {
             super.paintComponent(graphics);
@@ -379,6 +415,24 @@ final class GrainEditorPanel extends JPanel {
             } finally {
                 canvas.dispose();
             }
+        }
+    }
+
+    private static final class SidebarPanel extends JPanel implements Scrollable {
+        private SidebarPanel() { super(new BorderLayout(0, 12)); }
+        @Override
+        public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) { return 16; }
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+            return Math.max(16, visible.height - 16);
+        }
+        @Override
+        public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return getParent() != null && getPreferredSize().height <= getParent().getHeight();
         }
     }
 }

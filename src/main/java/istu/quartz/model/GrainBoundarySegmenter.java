@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.concurrent.CancellationException;
 import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 
 public class GrainBoundarySegmenter {
 
@@ -23,6 +24,11 @@ public class GrainBoundarySegmenter {
     }
 
     public ImageProcessor segment(ImagePlus image, File modelFile, Consumer<String> progress) throws IOException {
+        return segment(image, modelFile, progress, (completed, total) -> { });
+    }
+
+    public ImageProcessor segment(ImagePlus image, File modelFile, Consumer<String> progress,
+                                  BiConsumer<Integer, Integer> completed) throws IOException {
         if (image.getStackSize() != 1 || image.getType() != ImagePlus.COLOR_RGB) {
             throw new IllegalArgumentException("Для этой модели нужен одиночный RGB-снимок.");
         }
@@ -41,7 +47,7 @@ public class GrainBoundarySegmenter {
             }
 
             if (image.getWidth() > TILE_SIZE || image.getHeight() > TILE_SIZE) {
-                return segmentTiles(segmentation, image, boundaryIndex, progress);
+                return segmentTiles(segmentation, image, boundaryIndex, progress, completed);
             }
             return classify(segmentation, image, boundaryIndex);
         } finally {
@@ -58,7 +64,7 @@ public class GrainBoundarySegmenter {
     }
 
     private ImageProcessor segmentTiles(WekaSegmentation segmentation, ImagePlus image, int boundaryIndex,
-                                        Consumer<String> progress) {
+                                        Consumer<String> progress, BiConsumer<Integer, Integer> completed) {
         int width = image.getWidth();
         int height = image.getHeight();
         FloatProcessor boundary = new FloatProcessor(width, height);
@@ -69,6 +75,7 @@ public class GrainBoundarySegmenter {
                 + segmentation.getMembranePatchSize() / 2 + 2);
         int total = ((width + TILE_SIZE - 1) / TILE_SIZE) * ((height + TILE_SIZE - 1) / TILE_SIZE);
         int tileNumber = 0;
+        completed.accept(0, total);
         for (int y = 0; y < height; y += TILE_SIZE) {
             for (int x = 0; x < width; x += TILE_SIZE) {
                 if (Thread.currentThread().isInterrupted()) throw new CancellationException();
@@ -87,6 +94,7 @@ public class GrainBoundarySegmenter {
                         boundary.setf(x + column, y + row, predicted.getf(x - left + column, y - top + row));
                     }
                 }
+                completed.accept(tileNumber, total);
             }
         }
         return boundary;

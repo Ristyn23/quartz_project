@@ -17,6 +17,7 @@ import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
+import javax.swing.JSplitPane;
 import javax.swing.SwingWorker;
 import javax.swing.SwingUtilities;
 import javax.swing.TransferHandler;
@@ -49,12 +50,15 @@ public class QuartzWindow extends JFrame {
     private final JButton chooseModel = new JButton("Выбрать модель");
     private final JButton analyze = new JButton("Обработать");
     private final JButton openAnnotations = new JButton("Открыть разметку…");
+    private final JButton fitImage = new JButton("Вписать изображение");
     private final JLabel modelName = new JLabel("Модель не выбрана");
     private final JLabel status = new JLabel("Перетащите снимок и модель в окно или выберите их кнопками.");
     private final JTabbedPane tabs = new JTabbedPane();
-    private final ImagePreview originalPreview = new ImagePreview();
-    private final ImagePreview boundaryPreview = new ImagePreview();
-    private final GrainEditorPanel grainEditor = new GrainEditorPanel();
+    private final ImagePreview.ViewState view = new ImagePreview.ViewState();
+    private final ImagePreview originalPreview = new ImagePreview(view);
+    private final ImagePreview boundaryPreview = new ImagePreview(view);
+    private final GrainEditorPanel grainEditor = new GrainEditorPanel(view);
+    private final QuartzStatusBar footer = new QuartzStatusBar(originalPreview, view, fitImage, status);
 
     private ImagePlus image;
     private File modelFile;
@@ -76,18 +80,26 @@ public class QuartzWindow extends JFrame {
         annotationTools.add(openAnnotations);
         toolbar.add(annotationTools, BorderLayout.PAGE_END);
         openAnnotations.setEnabled(false);
+        fitImage.setEnabled(false);
+        fitImage.addActionListener(event -> view.reset());
 
         tabs.addTab("Снимок", originalPreview);
         tabs.addTab("Карта границ", boundaryPreview);
         tabs.addTab("Зёрна", grainEditor);
         tabs.setEnabledAt(1, false);
         tabs.setEnabledAt(2, false);
+        tabs.addChangeListener(event -> grainEditor.setEditingEnabled(tabs.getSelectedIndex() == 2));
+        grainEditor.setEditingEnabled(false);
+        JSplitPane workspace = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, tabs, grainEditor.toolsPanel());
+        workspace.setResizeWeight(1.0);
+        workspace.setDividerLocation(900);
+        tabs.setMinimumSize(new Dimension(400, 200));
 
         JPanel content = new JPanel(new BorderLayout(0, 8));
         content.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
         content.add(toolbar, BorderLayout.PAGE_START);
-        content.add(tabs, BorderLayout.CENTER);
-        content.add(status, BorderLayout.PAGE_END);
+        content.add(workspace, BorderLayout.CENTER);
+        content.add(footer, BorderLayout.PAGE_END);
         setContentPane(content);
         setTransferHandler(new InputFileTransferHandler());
 
@@ -106,8 +118,8 @@ public class QuartzWindow extends JFrame {
                 }
             }
         });
-        setMinimumSize(new Dimension(680, 420));
-        setSize(960, 680);
+        setMinimumSize(new Dimension(1020, 560));
+        setSize(1240, 800);
         setLocationByPlatform(true);
     }
 
@@ -181,6 +193,7 @@ public class QuartzWindow extends JFrame {
             return;
         }
         if (openedImage != null) {
+            view.reset();
             originalPreview.setImage(openedPreview);
             image = openedImage;
         }
@@ -244,6 +257,8 @@ public class QuartzWindow extends JFrame {
                 ImageProcessor boundary = segmenter.segment(input, selectedModel,
                         message -> SwingUtilities.invokeLater(() -> {
                             if (isDisplayable()) status.setText(message);
+                        }), (completed, total) -> SwingUtilities.invokeLater(() -> {
+                            if (isDisplayable() && processing) footer.setCompleted(completed, total);
                         }));
                 boundary.setMinAndMax(0, 1);
                 publish(boundary.getBufferedImage());
@@ -257,6 +272,7 @@ public class QuartzWindow extends JFrame {
                     tabs.setEnabledAt(1, true);
                     tabs.setSelectedIndex(1);
                     status.setText("Watershed выделяет зёрна…");
+                    footer.setIndeterminate();
                 }
             }
 
@@ -292,10 +308,12 @@ public class QuartzWindow extends JFrame {
 
     private void setProcessing(boolean processing) {
         this.processing = processing;
+        footer.setWorking(processing);
         grainEditor.setBusy(processing);
         openImage.setEnabled(!processing);
         chooseModel.setEnabled(!processing);
         openAnnotations.setEnabled(!processing && image != null);
+        fitImage.setEnabled(image != null);
         analyze.setEnabled(!processing && image != null && modelFile != null);
     }
 
