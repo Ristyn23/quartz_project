@@ -41,10 +41,13 @@ public final class StackMergeWindow extends JFrame {
     private final JButton merge = new JButton("Объединить");
     private final JButton use = new JButton("Использовать в Quartz");
     private final JButton save = new JButton("Сохранить TIFF…");
+    private final JToggleButton selectArea = new JToggleButton("Выделить область");
+    private final JButton clearArea = new JButton("Сбросить выделение");
+    private final JLabel selectionSize = new JLabel("Весь снимок");
     private final JSlider blend = new JSlider(0, 100, 50);
     private final ImagePreview sourcePreview = new ImagePreview();
     private final ImagePreview alignedPreview = new ImagePreview();
-    private final ImagePreview resultPreview = new ImagePreview();
+    private final CropPreview resultPreview = new CropPreview(this::updateSelectionControls);
     private final JTabbedPane tabs = new JTabbedPane();
     private final JLabel status = new JLabel("Добавьте снимки одной области в порядке съёмки. Первый кадр — опорный.");
     private final JLabel details = new JLabel(" ");
@@ -96,7 +99,17 @@ public final class StackMergeWindow extends JFrame {
         aligned.add(alignedPreview, BorderLayout.CENTER);
         tabs.addTab("Исходные кадры", sourcePreview);
         tabs.addTab("Проверка совмещения", aligned);
-        tabs.addTab("Объединённый снимок", resultPreview);
+        JPanel resultPanel = new JPanel(new BorderLayout());
+        JPanel cropTools = new JPanel(new FlowLayout(FlowLayout.LEADING));
+        cropTools.add(selectArea);
+        cropTools.add(clearArea);
+        cropTools.add(selectionSize);
+        resultPanel.add(cropTools, BorderLayout.PAGE_START);
+        resultPanel.add(resultPreview, BorderLayout.CENTER);
+        tabs.addTab("Объединённый снимок", resultPanel);
+        selectArea.setToolTipText("Левой кнопкой нарисуйте рамку, перемещайте её или тяните за маркеры.");
+        selectArea.addActionListener(e -> resultPreview.setSelecting(selectArea.isSelected()));
+        clearArea.addActionListener(e -> clearCrop());
         tabs.setEnabledAt(1, false);
         tabs.setEnabledAt(2, false);
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, filePanel, tabs);
@@ -166,7 +179,10 @@ public final class StackMergeWindow extends JFrame {
         align.addActionListener(e -> align());
         merge.addActionListener(e -> merge());
         save.addActionListener(e -> save());
-        use.addActionListener(e -> new QuartzWindow(log, result.duplicate()).setVisible(true));
+        use.addActionListener(e -> {
+            try { new QuartzWindow(log, outputSnapshot()).setVisible(true); }
+            catch (IOException | RuntimeException error) { showError(error); }
+        });
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
@@ -290,6 +306,7 @@ public final class StackMergeWindow extends JFrame {
     private void invalidateResult() {
         alignment = null;
         result = null;
+        clearCrop();
         tabs.setSelectedIndex(0);
         tabs.setEnabledAt(1, false);
         tabs.setEnabledAt(2, false);
@@ -318,6 +335,7 @@ public final class StackMergeWindow extends JFrame {
                 try {
                     alignment = get();
                     result = null;
+                    clearCrop();
                     resultPreview.setImage(null);
                     tabs.setEnabledAt(2, false);
                     tabs.setEnabledAt(1, true);
@@ -347,6 +365,7 @@ public final class StackMergeWindow extends JFrame {
                     result = get();
                     SpatialScale.apply(result, scalePanel.getScale());
                     resultPreview.setImage(result.getBufferedImage());
+                    clearCrop();
                     tabs.setEnabledAt(2, true);
                     tabs.setSelectedIndex(2);
                     status.setText("Готово: " + result.getWidth() + " × " + result.getHeight()
@@ -373,7 +392,9 @@ public final class StackMergeWindow extends JFrame {
         boolean replace = Files.exists(output);
         if (replace && JOptionPane.showConfirmDialog(this, "Заменить " + selected.getName() + "?",
                 "Сохранить TIFF", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
-        ImagePlus snapshot = result.duplicate();
+        ImagePlus snapshot;
+        try { snapshot = outputSnapshot(); }
+        catch (IOException | RuntimeException error) { showError(error); return; }
         setBusy(true, "Сохранение TIFF…");
         worker = new SwingWorker<Void, Void>() {
             @Override
@@ -449,6 +470,38 @@ public final class StackMergeWindow extends JFrame {
         use.setEnabled(!busy && result != null);
         save.setEnabled(!busy && result != null);
         blend.setEnabled(!busy && alignment != null);
+        resultPreview.setEditable(!busy);
+        updateSelectionControls();
+    }
+
+    private void clearCrop() {
+        selectArea.setSelected(false);
+        resultPreview.setSelecting(false);
+        resultPreview.clearSelection();
+    }
+
+    private void updateSelectionControls() {
+        Rectangle selected = resultPreview.getSelection();
+        selectArea.setEnabled(!busy && result != null);
+        clearArea.setEnabled(!busy && selected != null);
+        selectionSize.setText(selected == null ? "Весь снимок" :
+                "Выделено: " + selected.width + " × " + selected.height + " px");
+    }
+
+    private ImagePlus outputSnapshot() throws IOException {
+        Rectangle selected = resultPreview.getSelection();
+        if (selected == null) return result.duplicate();
+        ij.process.ImageProcessor pixels = result.getProcessor().duplicate();
+        pixels.setRoi(selected);
+        ImagePlus output = new ImagePlus(result.getTitle() + " — фрагмент", pixels.crop());
+        ij.measure.Calibration calibration = result.getCalibration().copy();
+        calibration.xOrigin -= selected.x;
+        calibration.yOrigin -= selected.y;
+        output.setCalibration(calibration);
+        String info = result.getInfoProperty();
+        output.setProperty("Info", "Selected rectangle in merged pixels: " + selected + "\n" + (info == null ? "" : info));
+        SpatialScale.apply(output, SpatialScale.fromImage(result));
+        return output;
     }
 
     private void showError(Throwable error) {
