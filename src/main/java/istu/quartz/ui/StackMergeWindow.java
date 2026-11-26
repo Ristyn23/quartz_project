@@ -202,9 +202,7 @@ public final class StackMergeWindow extends JFrame {
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent event) {
-                if (busy && JOptionPane.showConfirmDialog(StackMergeWindow.this,
-                        "Прервать операцию и закрыть окно?", "Quartz Segmentation",
-                        JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+                if (!CloseConfirmation.confirm(StackMergeWindow.this, busy)) return;
                 if (worker != null) worker.cancel(true);
                 dispose();
             }

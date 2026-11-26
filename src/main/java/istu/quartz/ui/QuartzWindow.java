@@ -66,6 +66,7 @@ public class QuartzWindow extends JFrame {
     private ImagePlus image;
     private File modelFile;
     private boolean processing;
+    private SwingWorker<?, ?> worker;
 
     public QuartzWindow(LogService log) {
         super("Quartz");
@@ -121,7 +122,8 @@ public class QuartzWindow extends JFrame {
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent event) {
-                if (grainEditor.confirmDiscard()) {
+                if (grainEditor.confirmClose(processing)) {
+                    if (worker != null) worker.cancel(true);
                     dispose();
                 }
             }
@@ -263,7 +265,7 @@ public class QuartzWindow extends JFrame {
         setProcessing(true);
         status.setText("TWS обрабатывает снимок…");
 
-        new SwingWorker<GrainLabelMap, BufferedImage>() {
+        worker = new SwingWorker<GrainLabelMap, BufferedImage>() {
             @Override
             protected GrainLabelMap doInBackground() throws Exception {
                 ImageProcessor boundary = segmenter.segment(input, selectedModel,
@@ -272,6 +274,7 @@ public class QuartzWindow extends JFrame {
                         }), (completed, total) -> SwingUtilities.invokeLater(() -> {
                             if (isDisplayable() && processing) footer.setCompleted(completed, total);
                         }));
+                if (isCancelled()) return null;
                 boundary.setMinAndMax(0, 1);
                 publish(boundary.getBufferedImage());
                 return watershed.label(boundary, AnalysisRegion.read(input));
@@ -279,7 +282,7 @@ public class QuartzWindow extends JFrame {
 
             @Override
             protected void process(List<BufferedImage> previews) {
-                if (isDisplayable()) {
+                if (isDisplayable() && !isCancelled()) {
                     boundaryPreview.setImage(previews.get(previews.size() - 1));
                     tabs.setEnabledAt(1, true);
                     tabs.setSelectedIndex(1);
@@ -290,7 +293,7 @@ public class QuartzWindow extends JFrame {
 
             @Override
             protected void done() {
-                if (!isDisplayable()) {
+                if (!isDisplayable() || isCancelled()) {
                     return;
                 }
                 try {
@@ -307,7 +310,8 @@ public class QuartzWindow extends JFrame {
                     setProcessing(false);
                 }
             }
-        }.execute();
+        };
+        worker.execute();
     }
 
     private void clearResult() {
@@ -338,7 +342,7 @@ public class QuartzWindow extends JFrame {
         ImagePlus input = image;
         setProcessing(true);
         status.setText("Открытие разметки…");
-        new SwingWorker<GrainAnnotationIO.Document, Void>() {
+        worker = new SwingWorker<GrainAnnotationIO.Document, Void>() {
             @Override
             protected GrainAnnotationIO.Document doInBackground() throws Exception {
                 GrainAnnotationIO.Document document = GrainAnnotationIO.readDocument(source.file.toPath(), source.format, input.getWidth(), input.getHeight());
@@ -348,6 +352,7 @@ public class QuartzWindow extends JFrame {
 
             @Override
             protected void done() {
+                if (!isDisplayable() || isCancelled()) return;
                 try {
                     GrainAnnotationIO.Document imported = get();
                     if (isDisplayable()) {
@@ -373,7 +378,8 @@ public class QuartzWindow extends JFrame {
                     setProcessing(false);
                 }
             }
-        }.execute();
+        };
+        worker.execute();
     }
 
     private void loadScale(ImagePlus input) {

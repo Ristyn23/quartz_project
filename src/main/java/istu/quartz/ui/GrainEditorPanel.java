@@ -316,6 +316,17 @@ final class GrainEditorPanel extends JPanel {
         return answer == JOptionPane.NO_OPTION;
     }
 
+    boolean confirmClose(boolean processing) {
+        if (!dirty) return CloseConfirmation.confirm(this, processing);
+        String message = "Сохранить изменения разметки перед закрытием?";
+        if (processing) message += "\nТекущая операция будет прервана.";
+        Object[] options = {"Сохранить и закрыть", "Закрыть без сохранения", "Отмена"};
+        int answer = JOptionPane.showOptionDialog(this, message, "Закрытие Quartz",
+                JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[2]);
+        if (answer == 0) return saveAnnotations();
+        return answer == 1;
+    }
+
     private boolean saveAnnotations() {
         if (labels != null && AnnotationFileDialog.save(this, labels.snapshot(), scale)) {
             dirty = false;
