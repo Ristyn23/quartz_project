@@ -1,6 +1,7 @@
 package istu.quartz.ui;
 
 import ij.ImagePlus;
+import istu.quartz.model.SpatialScale;
 import ij.io.Opener;
 import ij.process.ImageProcessor;
 import istu.quartz.model.GrainBoundarySegmenter;
@@ -60,6 +61,7 @@ public class QuartzWindow extends JFrame {
     private final GrainEditorPanel grainEditor = new GrainEditorPanel(view);
     private final QuartzStatusBar footer = new QuartzStatusBar(originalPreview, view, fitImage, status);
 
+    private final ScalePanel scalePanel;
     private ImagePlus image;
     private File modelFile;
     private boolean processing;
@@ -67,6 +69,11 @@ public class QuartzWindow extends JFrame {
     public QuartzWindow(LogService log) {
         super("Quartz");
         this.log = log;
+        scalePanel = new ScalePanel(originalPreview, () -> tabs.setSelectedIndex(0), scale -> {
+            boundaryPreview.setSpatialScale(scale);
+            grainEditor.setScale(scale, true);
+        });
+        grainEditor.addScalePanel(scalePanel);
 
         JPanel selection = new JPanel(new FlowLayout(FlowLayout.LEADING));
         selection.add(openImage);
@@ -126,6 +133,7 @@ public class QuartzWindow extends JFrame {
     public QuartzWindow(LogService log, ImagePlus initialImage) {
         this(log);
         image = initialImage;
+        loadScale(image);
         originalPreview.setImage(image.getBufferedImage());
         status.setText(image.getTitle() + "  ·  " + image.getWidth() + " × " + image.getHeight());
         setProcessing(false);
@@ -203,6 +211,7 @@ public class QuartzWindow extends JFrame {
             modelName.setToolTipText(selectedModel.getAbsolutePath());
         }
         clearResult();
+        if (openedImage != null) loadScale(image);
         status.setText(image == null ? "Загрузите снимок."
                 : image.getTitle() + "  ·  " + image.getWidth() + " × " + image.getHeight());
         setProcessing(false);
@@ -310,6 +319,7 @@ public class QuartzWindow extends JFrame {
         this.processing = processing;
         footer.setWorking(processing);
         grainEditor.setBusy(processing);
+        scalePanel.setBusy(processing);
         openImage.setEnabled(!processing);
         chooseModel.setEnabled(!processing);
         openAnnotations.setEnabled(!processing && image != null);
@@ -325,19 +335,26 @@ public class QuartzWindow extends JFrame {
         ImagePlus input = image;
         setProcessing(true);
         status.setText("Открытие разметки…");
-        new SwingWorker<GrainLabelMap, Void>() {
+        new SwingWorker<GrainAnnotationIO.Document, Void>() {
             @Override
-            protected GrainLabelMap doInBackground() throws Exception {
-                return GrainAnnotationIO.read(source.file.toPath(), source.format, input.getWidth(), input.getHeight());
+            protected GrainAnnotationIO.Document doInBackground() throws Exception {
+                return GrainAnnotationIO.readDocument(source.file.toPath(), source.format, input.getWidth(), input.getHeight());
             }
 
             @Override
             protected void done() {
                 try {
-                    GrainLabelMap imported = get();
+                    GrainAnnotationIO.Document imported = get();
                     if (isDisplayable()) {
+                        boolean useScale = imported.scale != null;
+                        if (useScale && scalePanel.getScale() != null && !imported.scale.equals(scalePanel.getScale())) {
+                            useScale = JOptionPane.showConfirmDialog(QuartzWindow.this,
+                                    "Масштаб разметки отличается от текущего. Использовать масштаб из разметки?",
+                                    "Масштаб", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
+                        }
                         clearResult();
-                        grainEditor.setGrains(originalPreview.getImage(), imported);
+                        if (useScale) scalePanel.setScale(imported.scale);
+                        grainEditor.setGrains(originalPreview.getImage(), imported.labels);
                         tabs.setEnabledAt(2, true);
                         tabs.setSelectedIndex(2);
                         status.setText("Разметка загружена: " + source.file.getName());
@@ -352,6 +369,11 @@ public class QuartzWindow extends JFrame {
                 }
             }
         }.execute();
+    }
+
+    private void loadScale(ImagePlus input) {
+        try { scalePanel.setImage(input); }
+        catch (IOException error) { scalePanel.setScale(null); showError(error); }
     }
 
     private void showError(Throwable error) {

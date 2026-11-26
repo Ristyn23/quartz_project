@@ -17,6 +17,10 @@ public final class GrainCsvExporter {
     }
 
     public static void write(ImageProcessor labels, Path destination, boolean replaceExisting) throws IOException {
+        write(labels, destination, replaceExisting, null);
+    }
+
+    public static void write(ImageProcessor labels, Path destination, boolean replaceExisting, SpatialScale scale) throws IOException {
         int[] grainIds = LabelImages.findAllLabels(labels);
         GrainMeasurement[] measurements = GrainMeasurement.measure(labels, grainIds);
 
@@ -26,6 +30,7 @@ public final class GrainCsvExporter {
             try (BufferedWriter writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
                 writer.write("grain_id,area_px2,perimeter_px,equivalent_diameter_px,major_axis_px,minor_axis_px,"
                         + "aspect_ratio,circularity,roundness");
+                if (scale != null) writer.write(",length_unit,pixel_size,area_calibrated,perimeter_calibrated,equivalent_diameter_calibrated,major_axis_calibrated,minor_axis_calibrated");
                 writer.newLine();
                 for (int i = 0; i < grainIds.length; i++) {
                     GrainMeasurement grain = measurements[i];
@@ -33,6 +38,12 @@ public final class GrainCsvExporter {
                             number(grain.perimeterPx), number(grain.equivalentDiameterPx),
                             number(grain.majorAxisPx), number(grain.minorAxisPx), number(grain.aspectRatio),
                             number(grain.circularity), number(grain.roundness)));
+                    if (scale != null) writer.write(",\"" + scale.unit.replace("\"", "\"\"") + "\"," + number(scale.pixelSize) + ","
+                            + number(grain.areaPx2 * scale.pixelSize * scale.pixelSize) + ","
+                            + number(grain.perimeterPx * scale.pixelSize) + ","
+                            + number(grain.equivalentDiameterPx * scale.pixelSize) + ","
+                            + number(grain.majorAxisPx * scale.pixelSize) + ","
+                            + number(grain.minorAxisPx * scale.pixelSize));
                     writer.newLine();
                 }
             }

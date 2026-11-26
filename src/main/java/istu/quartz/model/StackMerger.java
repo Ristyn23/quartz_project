@@ -29,12 +29,14 @@ public final class StackMerger {
         private final Rectangle bounds;
         private final byte[][] coverage;
         private final List<String> descriptions;
+        private final SpatialScale scale;
 
-        private Alignment(ImageStack frames, Rectangle bounds, byte[][] coverage, List<String> descriptions) {
+        private Alignment(ImageStack frames, Rectangle bounds, byte[][] coverage, List<String> descriptions, SpatialScale scale) {
             this.frames = frames;
             this.bounds = new Rectangle(bounds);
             this.coverage = coverage;
             this.descriptions = descriptions;
+            this.scale = scale;
         }
 
         public int size() { return frames.getSize(); }
@@ -72,6 +74,7 @@ public final class StackMerger {
             ImagePlus output = new ImagePlus("Quartz merged", new ColorProcessor(bounds.width, bounds.height, merged));
             output.setProperty("Info", "Quartz: SIFT rigid alignment; coverage-aware RGB mean.\n"
                     + "Full canvas in reference frame: " + bounds + "\n" + String.join("\n", descriptions));
+            SpatialScale.apply(output, scale);
             return output;
         }
     }
@@ -176,7 +179,7 @@ public final class StackMerger {
             coverage[i] = valid;
             aligned.addSlice(inputs.get(i).getTitle(), target);
         }
-        return new Alignment(aligned, bounds, coverage, descriptions);
+        return new Alignment(aligned, bounds, coverage, descriptions, SpatialScale.fromImage(inputs.get(0)));
     }
 
     private List<Feature> features(ImagePlus image, int width, int height) {

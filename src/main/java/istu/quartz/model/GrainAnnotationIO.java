@@ -43,7 +43,18 @@ public final class GrainAnnotationIO {
     }
 
     public static GrainLabelMap read(Path file, Format format, int width, int height) throws IOException {
+        return readDocument(file, format, width, height).labels;
+    }
+
+    public static final class Document {
+        public final GrainLabelMap labels;
+        public final SpatialScale scale;
+        Document(GrainLabelMap labels, SpatialScale scale) { this.labels = labels; this.scale = scale; }
+    }
+
+    public static Document readDocument(Path file, Format format, int width, int height) throws IOException {
         ImageProcessor labels;
+        SpatialScale scale = null;
         if (format == Format.TIFF) {
             Opener opener = new Opener();
             opener.setSilentMode(true);
@@ -52,11 +63,14 @@ public final class GrainAnnotationIO {
                 throw new IOException("Выберите одиночную TIFF-карту с числовыми метками.");
             }
             labels = opened.getProcessor();
+            scale = SpatialScale.fromImage(opened);
         } else {
-            labels = readRois(file, width, height);
+            Properties metadata = new Properties();
+            labels = readRois(file, width, height, metadata);
+            scale = SpatialScale.read(metadata);
         }
         validate(labels, width, height);
-        return new GrainLabelMap(labels);
+        return new Document(new GrainLabelMap(labels), scale);
     }
 
     private static void validate(ImageProcessor labels, int width, int height) throws IOException {
@@ -77,16 +91,22 @@ public final class GrainAnnotationIO {
     }
 
     public static void write(ImageProcessor labels, Path file, Format format, boolean replace) throws IOException {
+        write(labels, file, format, replace, null);
+    }
+
+    public static void write(ImageProcessor labels, Path file, Format format, boolean replace, SpatialScale scale) throws IOException {
         validate(labels, labels.getWidth(), labels.getHeight());
         Path output = file.toAbsolutePath();
         Path temporary = Files.createTempFile(output.getParent(), ".quartz-labels-", ".tmp");
         try {
             if (format == Format.TIFF) {
-                if (!new FileSaver(new ImagePlus("Quartz labels", labels)).saveAsTiff(temporary.toString())) {
+                ImagePlus outputImage = new ImagePlus("Quartz labels", labels);
+                SpatialScale.apply(outputImage, scale);
+                if (!new FileSaver(outputImage).saveAsTiff(temporary.toString())) {
                     throw new IOException("Не удалось записать TIFF.");
                 }
             } else {
-                writeRois(labels, temporary);
+                writeRois(labels, temporary, scale);
             }
             if (replace) {
                 try {
@@ -102,12 +122,13 @@ public final class GrainAnnotationIO {
         }
     }
 
-    private static void writeRois(ImageProcessor labels, Path file) throws IOException {
+    private static void writeRois(ImageProcessor labels, Path file, SpatialScale scale) throws IOException {
         try (OutputStream stream = Files.newOutputStream(file);
              ZipOutputStream zip = new ZipOutputStream(stream)) {
             Properties canvas = new Properties();
             canvas.setProperty("width", Integer.toString(labels.getWidth()));
             canvas.setProperty("height", Integer.toString(labels.getHeight()));
+            if (scale != null) scale.store(canvas);
             zip.putNextEntry(new ZipEntry("quartz.properties"));
             canvas.store(zip, "Quartz image dimensions");
             zip.closeEntry();
@@ -137,14 +158,14 @@ public final class GrainAnnotationIO {
         }
     }
 
-    private static ImageProcessor readRois(Path file, int width, int height) throws IOException {
+    private static ImageProcessor readRois(Path file, int width, int height, Properties canvas) throws IOException {
         FloatProcessor labels = new FloatProcessor(width, height);
         Set<Integer> usedIds = new HashSet<>();
         int nextId = 1;
         try (ZipFile zip = new ZipFile(file.toFile())) {
             ZipEntry metadata = zip.getEntry("quartz.properties");
             if (metadata != null) {
-                Properties canvas = new Properties();
+
                 try (InputStream stream = zip.getInputStream(metadata)) {
                     canvas.load(stream);
                 }

@@ -1,6 +1,7 @@
 package istu.quartz.ui;
 
 import ij.process.ImageProcessor;
+import istu.quartz.model.SpatialScale;
 import istu.quartz.model.GrainAnnotationIO;
 import istu.quartz.model.GrainAnnotationIO.Format;
 
@@ -94,6 +95,10 @@ final class AnnotationFileDialog {
     }
 
     static boolean save(Component owner, ImageProcessor labels) {
+        return save(owner, labels, null);
+    }
+
+    static boolean save(Component owner, ImageProcessor labels, SpatialScale scale) {
         AnnotationFileDialog target = choose(owner, true);
         if (target == null) {
             return false;
@@ -113,7 +118,7 @@ final class AnnotationFileDialog {
         SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() throws Exception {
-                GrainAnnotationIO.write(labels, target.file.toPath(), target.format, target.replace);
+                GrainAnnotationIO.write(labels, target.file.toPath(), target.format, target.replace, scale);
                 return null;
             }
 

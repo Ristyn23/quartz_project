@@ -1,6 +1,8 @@
 package istu.quartz.ui;
 
 import javax.swing.JPanel;
+import istu.quartz.model.SpatialScale;
+import java.awt.Color;
 import javax.swing.SwingUtilities;
 import java.awt.Cursor;
 import java.awt.Graphics;
@@ -23,6 +25,11 @@ class ImagePreview extends JPanel {
     private static final double ZOOM_STEP = 1.2;
     static final double MIN_SCALE = 0.01;
     static final double MAX_SCALE = 16;
+
+    private SpatialScale spatialScale;
+    private Point measureFirst, measureSecond;
+    void setSpatialScale(SpatialScale scale) { spatialScale = scale; repaint(); }
+    void setMeasurePoints(Point first, Point second) { measureFirst = first; measureSecond = second; repaint(); }
 
     private BufferedImage image;
     private BufferedImage overlay;
@@ -224,6 +231,33 @@ class ImagePreview extends JPanel {
             if (overlay != null) {
                 canvas.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
                 canvas.drawImage(overlay, bounds.x, bounds.y, bounds.width, bounds.height, null);
+            }
+            if (measureFirst != null) {
+                canvas.setColor(Color.YELLOW);
+                int x = bounds.x + (int) ((measureFirst.x + 0.5) * bounds.width / image.getWidth());
+                int y = bounds.y + (int) ((measureFirst.y + 0.5) * bounds.height / image.getHeight());
+                canvas.drawOval(x - 4, y - 4, 8, 8);
+                if (measureSecond != null) {
+                    int xx = bounds.x + (int) ((measureSecond.x + 0.5) * bounds.width / image.getWidth());
+                    int yy = bounds.y + (int) ((measureSecond.y + 0.5) * bounds.height / image.getHeight());
+                    canvas.drawLine(x, y, xx, yy); canvas.drawOval(xx - 4, yy - 4, 8, 8);
+                }
+            }
+            if (spatialScale != null) {
+                Rectangle visible = bounds.intersection(new Rectangle(0, 0, getWidth(), getHeight()));
+                if (visible.width > 90 && visible.height > 50) {
+                    double limit = Math.min(120, visible.width - 40) / imageScale() * spatialScale.pixelSize;
+                    double power = Math.pow(10, Math.floor(Math.log10(limit)));
+                    double distance = (limit / power >= 5 ? 5 : limit / power >= 2 ? 2 : 1) * power;
+                    int length = Math.max(1, (int) Math.round(distance / spatialScale.pixelSize * imageScale()));
+                    String text = String.format(java.util.Locale.ROOT, "%.4g %s", distance, spatialScale.unit);
+                    int x = visible.x + 12, y = visible.y + visible.height - 14;
+                    canvas.setColor(new Color(0, 0, 0, 175));
+                    canvas.fillRect(x - 5, y - 25, Math.max(length, canvas.getFontMetrics().stringWidth(text)) + 12, 33);
+                    canvas.setColor(Color.WHITE); canvas.drawString(text, x, y - 10);
+                    canvas.drawLine(x, y, x + length, y); canvas.drawLine(x, y - 4, x, y + 2);
+                    canvas.drawLine(x + length, y - 4, x + length, y + 2);
+                }
             }
         } finally {
             canvas.dispose();

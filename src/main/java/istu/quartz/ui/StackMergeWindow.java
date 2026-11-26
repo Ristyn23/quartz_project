@@ -1,6 +1,7 @@
 package istu.quartz.ui;
 
 import ij.ImagePlus;
+import istu.quartz.model.SpatialScale;
 import ij.io.FileSaver;
 import ij.io.Opener;
 import istu.quartz.model.StackMerger;
@@ -27,6 +28,7 @@ import java.util.concurrent.ExecutionException;
 public final class StackMergeWindow extends JFrame {
     private static final FileNameExtensionFilter IMAGE_FILES = new FileNameExtensionFilter(
             "Изображения (BMP, PNG, TIFF, JPEG)", "bmp", "png", "tif", "tiff", "jpg", "jpeg");
+    private final ScalePanel scalePanel;
     private final LogService log;
     private final DefaultListModel<File> files = new DefaultListModel<>();
     private final JList<File> list = new JList<>(files);
@@ -55,6 +57,11 @@ public final class StackMergeWindow extends JFrame {
     public StackMergeWindow(LogService log) {
         super("Quartz Segmentation — Объединить снимки");
         this.log = log;
+        scalePanel = new ScalePanel(sourcePreview, () -> { list.setSelectedIndex(0); tabs.setSelectedIndex(0); }, scale -> {
+            for (ImagePlus input : inputs) SpatialScale.apply(input, scale);
+            alignedPreview.setSpatialScale(scale); resultPreview.setSpatialScale(scale);
+            if (result != null) SpatialScale.apply(result, scale);
+        });
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         list.setCellRenderer(new DefaultListCellRenderer() {
             @Override
@@ -74,6 +81,7 @@ public final class StackMergeWindow extends JFrame {
         JPanel filePanel = new JPanel(new BorderLayout());
         filePanel.add(fileTools, BorderLayout.PAGE_START);
         filePanel.add(new JScrollPane(list), BorderLayout.CENTER);
+        filePanel.add(scalePanel, BorderLayout.PAGE_END);
         filePanel.setPreferredSize(new Dimension(390, 400));
 
         JPanel aligned = new JPanel(new BorderLayout());
@@ -224,6 +232,12 @@ public final class StackMergeWindow extends JFrame {
                     if (input.getWidth() != width || input.getHeight() != height) {
                         throw new IOException("Все снимки должны иметь одинаковый размер: " + file.getName());
                     }
+                    SpatialScale reference = inputs.isEmpty()
+                            ? (loaded.isEmpty() ? SpatialScale.fromImage(input) : SpatialScale.fromImage(loaded.get(0)))
+                            : SpatialScale.fromImage(inputs.get(0));
+                    SpatialScale incoming = SpatialScale.fromImage(input);
+                    if (reference != null && incoming != null && !reference.equals(incoming))
+                        throw new IOException("Масштабы кадров различаются. Для объединения нужны кадры одного масштаба.");
                     loaded.add(input);
                 }
                 return loaded;
@@ -331,6 +345,7 @@ public final class StackMergeWindow extends JFrame {
                 if (!isDisplayable()) return;
                 try {
                     result = get();
+                    SpatialScale.apply(result, scalePanel.getScale());
                     resultPreview.setImage(result.getBufferedImage());
                     tabs.setEnabledAt(2, true);
                     tabs.setSelectedIndex(2);
@@ -389,6 +404,8 @@ public final class StackMergeWindow extends JFrame {
     private void refreshPreview() {
         int index = list.getSelectedIndex();
         sourcePreview.setImage(index >= 0 && index < inputs.size() ? inputs.get(index).getBufferedImage() : null);
+        try { scalePanel.setImage(inputs.isEmpty() ? null : inputs.get(0)); }
+        catch (IOException error) { showError(error); }
         refreshOverlay();
     }
 
@@ -413,6 +430,7 @@ public final class StackMergeWindow extends JFrame {
 
     private void setBusy(boolean value, String message) {
         busy = value;
+        scalePanel.setBusy(value);
         if (message != null) status.setText(message);
         progress.setIndeterminate(value);
         progress.setVisible(value);

@@ -4,6 +4,7 @@ import ij.process.ImageProcessor;
 import istu.quartz.model.GrainCsvExporter;
 import istu.quartz.model.GrainLabelMap;
 import istu.quartz.model.GrainMeasurement;
+import istu.quartz.model.SpatialScale;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -58,6 +59,18 @@ final class GrainEditorPanel extends JPanel {
     private final EditorPreview preview;
     private final JPanel sidebar = new SidebarPanel();
     private final JScrollPane sidebarScroll = new JScrollPane(sidebar);
+
+    private SpatialScale scale;
+    void setScale(SpatialScale next, boolean modified) {
+        if (modified && labels != null && !java.util.Objects.equals(scale, next)) dirty = true;
+        scale = next; preview.setSpatialScale(next); updateSelection();
+    }
+    void addScalePanel(JComponent panel) {
+        JPanel top = new JPanel(new BorderLayout(0, 8));
+        java.awt.Component tools = ((BorderLayout) sidebar.getLayout()).getLayoutComponent(BorderLayout.PAGE_START);
+        sidebar.remove(tools); top.add(panel, BorderLayout.PAGE_START); top.add(tools, BorderLayout.CENTER);
+        sidebar.add(top, BorderLayout.PAGE_START);
+    }
 
     private GrainLabelMap labels;
     private BufferedImage overlay;
@@ -273,9 +286,17 @@ final class GrainEditorPanel extends JPanel {
         }
         GrainMeasurement grain = labels.measure(label);
         return "<html><b>Зерно №" + label + "</b><br>Площадь: " + areaFormat.format(grain.areaPx2) + " px²"
+                + (scale == null ? "" : "<br>Площадь: " + physical(grain.areaPx2 * scale.pixelSize * scale.pixelSize) + " " + html(scale.unit) + "²"
+                    + "<br>Периметр: " + physical(grain.perimeterPx * scale.pixelSize) + " " + html(scale.unit)
+                    + "<br>Диаметр: " + physical(grain.equivalentDiameterPx * scale.pixelSize) + " " + html(scale.unit)
+                    + "<br>Оси: " + physical(grain.majorAxisPx * scale.pixelSize) + " × " + physical(grain.minorAxisPx * scale.pixelSize) + " " + html(scale.unit))
                 + "<br>Вытянутость: " + formatShape(grain.aspectRatio)
                 + "<br>Круглость: " + formatShape(grain.circularity) + "</html>";
     }
+
+    private static String physical(double value) { return String.format(Locale.forLanguageTag("ru-RU"), "%.6g", value); }
+
+    private static String html(String value) { return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"); }
 
     private String formatShape(double value) {
         return Double.isFinite(value) ? shapeFormat.format(value) : "н/д";
@@ -294,7 +315,7 @@ final class GrainEditorPanel extends JPanel {
     }
 
     private boolean saveAnnotations() {
-        if (labels != null && AnnotationFileDialog.save(this, labels.snapshot())) {
+        if (labels != null && AnnotationFileDialog.save(this, labels.snapshot(), scale)) {
             dirty = false;
             instruction.setText("Разметка сохранена.");
             return true;
@@ -325,13 +346,14 @@ final class GrainEditorPanel extends JPanel {
 
         GrainLabelMap source = labels;
         ImageProcessor snapshot = source.snapshot();
+        SpatialScale savedScale = scale;
         exporting = true;
         save.setEnabled(false);
         instruction.setText("Сохранение CSV…");
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() throws IOException {
-                GrainCsvExporter.write(snapshot, destination, replace);
+                GrainCsvExporter.write(snapshot, destination, replace, savedScale);
                 return null;
             }
 
